@@ -1,0 +1,24 @@
+# Cline Workspace Configuration for Spring Boot & Angular
+
+# ====== TOKENS AND EFFICIENCY SAVINGS ======
+
+# Never read, scan, index, or analyze these heavy auto-generated dependency and build directories:
+
+- **/node_modules/**
+- **/target/**
+- **/.gradle/**
+- **/dist/**
+- **/.git/**
+- **/bin/**
+
+# ====== ARCHITECTURE MAP ======
+
+# Use this framework layout map to narrow down file searches:
+
+- Backend: Java Source files reside exclusively inside `src/main/java/`
+- Frontend: Angular TypeScripts and templates reside inside `src/app/` or `projects/`
+- Database: MySQL schemas, initialization files, or Liquibase changelogs reside inside `src/main/resources/`
+
+# ====== PRIVACY & SECURITY GUARDRAILS ======
+
+# Explicitly verify that no plain-text database passwords, production API secrets, or corporate production environment variables are stored in files being actively read or compiled by your terminal processes. Always make use of placeholders or system environment variables.

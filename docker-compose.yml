@@ -1,0 +1,32 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: backoffice-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: backoffice_db
+      MYSQL_USER: backoffice_user
+      MYSQL_PASSWORD: backoffice_pass
+      MYSQL_ROOT_PASSWORD: root_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - backoffice_mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-proot_pass",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  backoffice_mysql_data:
