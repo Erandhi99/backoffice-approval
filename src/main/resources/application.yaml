@@ -2,6 +2,9 @@ spring:
   application:
     name: backoffice-approval
 
+  main:
+    banner-mode: off # skip the ASCII-art banner on every startup
+
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:backoffice_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: ${DB_USER:backoffice_user}
@@ -9,6 +12,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
+    open-in-view: false # silences the "enabled by default" nag; see README for the tradeoff
     hibernate:
       # Best practice: schema is owned by Flyway migrations, not Hibernate.
       # "validate" makes Hibernate check the entities match the DB schema and fail fast if not.
@@ -16,8 +20,9 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        '[format_sql]': true
-        dialect: org.hibernate.dialect.MySQLDialect
+        "[format_sql]": true
+        # No explicit dialect: Hibernate 7 auto-detects it from the JDBC connection
+        # (and forcing MySQLDialect here was also wrong for the H2 test profile).
 
   flyway:
     enabled: true
@@ -34,10 +39,14 @@ app:
     expiration-ms: ${JWT_EXPIRATION_MS:86400000} # 24h
 
 springdoc:
+  api-docs:
+    enabled: true # explicit, so Spring stops nagging that it's "enabled by default"
   swagger-ui:
+    enabled: true
     path: /swagger-ui.html
 
 logging:
   level:
-    '[com.senfin.backoffice]': INFO
-    '[org.springframework.security]': WARN
+    root: WARN
+    "[com.senfin.backoffice_approval]": INFO
+    "[org.springframework.security.config.annotation.authentication.configuration.InitializeUserDetailsBeanManagerConfigurer]": ERROR

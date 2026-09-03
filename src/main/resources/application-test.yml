@@ -14,3 +14,9 @@ app:
   jwt:
     secret: test-secret-key-for-junit-only-not-for-prod-use-32bytes
     expiration-ms: 3600000
+
+logging:
+  level:
+    # Hibernate always issues a defensive DROP before CREATE, even against a brand-new
+    # in-memory DB with nothing to drop yet -- harmless, but noisy at WARN by default.
+    "[org.hibernate.tool.schema]": ERROR
