@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +34,10 @@ import jakarta.transaction.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@Transactional
+@Transactional // each @Test method runs in its own transaction, rolled back afterward --
+                // this replaces manual deleteAll() cleanup and, importantly, stops the
+                // "clients" table's unique NIC constraint from colliding across tests
+                // that all happen to use the same sample NIC.
 class ClientRequestWorkflowTest {
 
     @Autowired
@@ -45,7 +49,6 @@ class ClientRequestWorkflowTest {
 
     @BeforeEach
     void setUp() {
-        userRepository.deleteAll();
         createUser("client_a", Role.CLIENT);
         createUser("entry_a", Role.ENTRY_MANAGER);
         createUser("assist_a", Role.ASSISTANT_MANAGER);
@@ -69,12 +72,6 @@ class ClientRequestWorkflowTest {
                 .build());
     }
 
-    /**
-     * @PreAuthorize needs an Authentication in the SecurityContext to check roles against.
-     * A real HTTP request gets one for free from JwtAuthFilter; calling the service directly
-     * in a unit test does not, so we plant one manually -- this is the test-only equivalent
-     * of "logging in as" a given user before making the call.
-     */
     private void loginAs(String username, Role role) {
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
         var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
@@ -92,7 +89,7 @@ class ClientRequestWorkflowTest {
         assertEquals(RequestStatus.PENDING_ENTRY, req.status());
 
         loginAs("entry_a", Role.ENTRY_MANAGER);
-        req = requestService.approve("entry_a", req.id());
+        req = requestService.approve("entry_a", req.id(), sampleRequest());
         assertEquals(RequestStatus.PENDING_ASSISTANT_MANAGER, req.status());
 
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
@@ -104,6 +101,7 @@ class ClientRequestWorkflowTest {
         assertEquals(RequestStatus.APPROVED, req.status());
         assertNull(req.currentStage());
         assertEquals(4, req.history().size()); // SUBMITTED + 3 APPROVED
+        assertNotNull(req.savedClientId(), "a permanent client record should exist after final approval");
     }
 
     @Test
@@ -125,7 +123,6 @@ class ClientRequestWorkflowTest {
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
         Long id = req.id();
 
-        // request is at ENTRY stage; assistant manager trying to act should fail
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
         assertThrows(AccessDeniedCustomException.class, () -> requestService.approve("assist_a", id));
     }
@@ -136,13 +133,11 @@ class ClientRequestWorkflowTest {
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
         Long id = req.id();
 
-        // Can't edit while still pending
         assertThrows(InvalidStateException.class, () ->
                 requestService.editAndResubmit("client_a", id, sampleRequest()));
 
-        // Reject at assistant-manager stage after passing entry
         loginAs("entry_a", Role.ENTRY_MANAGER);
-        requestService.approve("entry_a", id);
+        requestService.approve("entry_a", id, sampleRequest());
 
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
         requestService.reject("assist_a", id, new ApprovalActionDto("Address unverifiable"));
@@ -156,5 +151,34 @@ class ClientRequestWorkflowTest {
         assertNull(edited.rejectionStage());
         assertNull(edited.rejectionComment());
         assertEquals("456 New Rd", edited.address());
+    }
+
+    @Test
+    void entryManagerCannotApproveWithoutEnteringDetails() {
+        loginAs("client_a", Role.CLIENT);
+        ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
+        Long id = req.id();
+
+        loginAs("entry_a", Role.ENTRY_MANAGER);
+        assertThrows(IllegalArgumentException.class, () -> requestService.approve("entry_a", id));
+    }
+
+    @Test
+    void permanentClientOnlyExistsAfterFinalApproval() {
+        loginAs("client_a", Role.CLIENT);
+        ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
+        assertNull(req.savedClientId());
+
+        loginAs("entry_a", Role.ENTRY_MANAGER);
+        req = requestService.approve("entry_a", req.id(), sampleRequest());
+        assertNull(req.savedClientId(), "still just staging data -- not permanent yet");
+
+        loginAs("assist_a", Role.ASSISTANT_MANAGER);
+        req = requestService.approve("assist_a", req.id());
+        assertNull(req.savedClientId(), "still not permanent until the MANAGER stage");
+
+        loginAs("mgr_a", Role.MANAGER);
+        req = requestService.approve("mgr_a", req.id());
+        assertNotNull(req.savedClientId(), "now permanently saved");
     }
 }

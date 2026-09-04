@@ -65,9 +65,16 @@ public class ClientRequestController {
         return ResponseEntity.ok(requestService.getQueueForRole(role));
     }
 
+    /**
+     * Approve at the current stage. At ENTRY, the body is REQUIRED -- this is the
+     * entry manager entering the client's details into the system. At any other
+     * stage, omit the body entirely.
+     */
     @PostMapping("/{id}/approve")
-    public ResponseEntity<ClientRequestResponseDto> approve(Authentication auth, @PathVariable Long id) {
-        return ResponseEntity.ok(requestService.approve(auth.getName(), id));
+    public ResponseEntity<ClientRequestResponseDto> approve(
+            Authentication auth, @PathVariable Long id,
+            @Valid @RequestBody(required = false) CreateClientRequestDto enteredData) {
+        return ResponseEntity.ok(requestService.approve(auth.getName(), id, enteredData));
     }
 
     @PostMapping("/{id}/reject")
@@ -76,6 +83,7 @@ public class ClientRequestController {
         return ResponseEntity.ok(requestService.reject(auth.getName(), id, dto));
     }
 
+    @SuppressWarnings("null")
     private Role primaryRole(Authentication auth) {
         return auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
