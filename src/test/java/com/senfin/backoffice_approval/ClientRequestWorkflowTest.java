@@ -1,6 +1,6 @@
 package com.senfin.backoffice_approval;
 
-import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -21,12 +21,13 @@ import org.springframework.test.context.ActiveProfiles;
 import com.senfin.backoffice_approval.dto.ApprovalActionDto;
 import com.senfin.backoffice_approval.dto.ClientRequestResponseDto;
 import com.senfin.backoffice_approval.dto.CreateClientRequestDto;
+import com.senfin.backoffice_approval.dto.FundInvestmentDto;
 import com.senfin.backoffice_approval.entity.ApprovalStage;
+import com.senfin.backoffice_approval.entity.Fund;
 import com.senfin.backoffice_approval.entity.RequestStatus;
 import com.senfin.backoffice_approval.entity.Role;
 import com.senfin.backoffice_approval.entity.User;
-import com.senfin.backoffice_approval.exception.AccessDeniedCustomException;
-import com.senfin.backoffice_approval.exception.InvalidStateException;
+import com.senfin.backoffice_approval.repository.FundRepository;
 import com.senfin.backoffice_approval.repository.UserRepository;
 import com.senfin.backoffice_approval.service.ClientRequestService;
 
@@ -34,10 +35,7 @@ import jakarta.transaction.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@Transactional // each @Test method runs in its own transaction, rolled back afterward --
-                // this replaces manual deleteAll() cleanup and, importantly, stops the
-                // "clients" table's unique NIC constraint from colliding across tests
-                // that all happen to use the same sample NIC.
+@Transactional
 class ClientRequestWorkflowTest {
 
     @Autowired
@@ -46,9 +44,19 @@ class ClientRequestWorkflowTest {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private FundRepository fundRepository;
+
+    private Long fundIdA;
+    private Long fundIdB;
 
     @BeforeEach
     void setUp() {
+        fundIdA = fundRepository.save(
+                Fund.builder().name("Test Fund A").slug("test-fund-a").url("https://example.com/a").build()).getId();
+        fundIdB = fundRepository.save(
+                Fund.builder().name("Test Fund B").slug("test-fund-b").url("https://example.com/b").build()).getId();
+
         createUser("client_a", Role.CLIENT);
         createUser("entry_a", Role.ENTRY_MANAGER);
         createUser("assist_a", Role.ASSISTANT_MANAGER);
@@ -57,11 +65,9 @@ class ClientRequestWorkflowTest {
 
     @AfterEach
     void tearDown() {
-        // Prevent one test's "logged in as" state from leaking into the next test.
         SecurityContextHolder.clearContext();
     }
-
-    private void createUser(String username, Role role) {
+private void createUser(String username, Role role) {
         userRepository.save(User.builder()
                 .username(username)
                 .password(passwordEncoder.encode("pw"))
@@ -79,7 +85,8 @@ class ClientRequestWorkflowTest {
     }
 
     private CreateClientRequestDto sampleRequest() {
-        return new CreateClientRequestDto("Test Client", "912345678V", "123 Main St", LocalDate.of(1991, 1, 1));
+        return new CreateClientRequestDto(List.of(
+                new FundInvestmentDto(fundIdA, new BigDecimal("10000.00"))));
     }
 
     @Test
@@ -87,10 +94,13 @@ class ClientRequestWorkflowTest {
         loginAs("client_a", Role.CLIENT);
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
         assertEquals(RequestStatus.PENDING_ENTRY, req.status());
+        assertEquals(1, req.fundInvestments().size());
+        assertEquals(fundIdA, req.fundInvestments().get(0).fundId());
 
         loginAs("entry_a", Role.ENTRY_MANAGER);
         req = requestService.approve("entry_a", req.id(), sampleRequest());
         assertEquals(RequestStatus.PENDING_ASSISTANT_MANAGER, req.status());
+        assertEquals(1, req.fundInvestments().size());
 
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
         req = requestService.approve("assist_a", req.id());
@@ -100,8 +110,9 @@ class ClientRequestWorkflowTest {
         req = requestService.approve("mgr_a", req.id());
         assertEquals(RequestStatus.APPROVED, req.status());
         assertNull(req.currentStage());
-        assertEquals(4, req.history().size()); // SUBMITTED + 3 APPROVED
-        assertNotNull(req.savedClientId(), "a permanent client record should exist after final approval");
+        assertEquals(4, req.history().size());
+        assertNotNull(req.savedClientId());
+        assertEquals(1, req.fundInvestments().size());
     }
 
     @Test
@@ -110,11 +121,11 @@ class ClientRequestWorkflowTest {
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
 
         loginAs("entry_a", Role.ENTRY_MANAGER);
-        req = requestService.reject("entry_a", req.id(), new ApprovalActionDto("NIC does not match records"));
+        req = requestService.reject("entry_a", req.id(), new ApprovalActionDto("Fund details incomplete"));
 
         assertEquals(RequestStatus.REJECTED, req.status());
         assertEquals(ApprovalStage.ENTRY, req.rejectionStage());
-        assertEquals("NIC does not match records", req.rejectionComment());
+        assertEquals("Fund details incomplete", req.rejectionComment());
     }
 
     @Test
@@ -124,43 +135,45 @@ class ClientRequestWorkflowTest {
         Long id = req.id();
 
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
-        assertThrows(AccessDeniedCustomException.class, () -> requestService.approve("assist_a", id));
+        assertThrows(com.senfin.backoffice_approval.exception.AccessDeniedCustomException.class,
+                () -> requestService.approve("assist_a", id));
     }
-
-    @Test
+@Test
     void clientCanEditOnlyAfterRejection_andItRestartsAtEntry() {
         loginAs("client_a", Role.CLIENT);
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
         Long id = req.id();
 
-        assertThrows(InvalidStateException.class, () ->
-                requestService.editAndResubmit("client_a", id, sampleRequest()));
+        assertThrows(com.senfin.backoffice_approval.exception.InvalidStateException.class,
+                () -> requestService.editAndResubmit("client_a", id, sampleRequest()));
 
         loginAs("entry_a", Role.ENTRY_MANAGER);
         requestService.approve("entry_a", id, sampleRequest());
 
         loginAs("assist_a", Role.ASSISTANT_MANAGER);
-        requestService.reject("assist_a", id, new ApprovalActionDto("Address unverifiable"));
+        requestService.reject("assist_a", id, new ApprovalActionDto("Insufficient investment amount"));
 
         loginAs("client_a", Role.CLIENT);
-        ClientRequestResponseDto edited = requestService.editAndResubmit("client_a", id,
-                new CreateClientRequestDto("Test Client", "912345678V", "456 New Rd", LocalDate.of(1991, 1, 1)));
+        CreateClientRequestDto editedDto = new CreateClientRequestDto(List.of(
+                new FundInvestmentDto(fundIdB, new BigDecimal("20000.00"))));
+        ClientRequestResponseDto edited = requestService.editAndResubmit("client_a", id, editedDto);
 
         assertEquals(RequestStatus.PENDING_ENTRY, edited.status());
         assertEquals(ApprovalStage.ENTRY, edited.currentStage());
         assertNull(edited.rejectionStage());
         assertNull(edited.rejectionComment());
-        assertEquals("456 New Rd", edited.address());
+        assertEquals(1, edited.fundInvestments().size());
+        assertEquals(fundIdB, edited.fundInvestments().get(0).fundId());
     }
 
     @Test
-    void entryManagerCannotApproveWithoutEnteringDetails() {
+    void entryManagerCannotApproveWithoutEnteringFundDetails() {
         loginAs("client_a", Role.CLIENT);
         ClientRequestResponseDto req = requestService.submit("client_a", sampleRequest());
         Long id = req.id();
 
         loginAs("entry_a", Role.ENTRY_MANAGER);
-        assertThrows(IllegalArgumentException.class, () -> requestService.approve("entry_a", id));
+        assertThrows(IllegalArgumentException.class, () -> requestService.approve("entry_a", id, null));
     }
 
     @Test

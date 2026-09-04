@@ -2,36 +2,25 @@ package com.senfin.backoffice_approval.entity;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import jakarta.persistence.*;
+import lombok.*;
 
 /**
- * The permanent, system-of-record client. Deliberately a SEPARATE table from
- * ClientRequest: a row here is only ever created once, at the moment the final
- * (MANAGER) approval happens. Everything before that -- the client's original
- * submission, the entry manager's entered data, intermediate approvals -- lives
- * only in ClientRequest, which is a workflow/staging record, not the source of truth.
- * This is what lets the rest of the business (or other systems) query "our actual
- * approved clients" without ever seeing in-flight or rejected applications.
+ * The permanent, system-of-record client. One row per User who has had at least
+ * one request fully approved through the Manager stage. Instead of being tied to
+ * a single source_request (as in the old 1:1 design), this record links to the
+ * User and accumulates fund investments across multiple approved requests.
+ * <p>
+ * A client is created on FIRST final approval; subsequent approvals for the same
+ * user add new fund investment rows without re-creating the client record.
+ * By rule, every permanent client must have at least one ClientFundInvestment.
  */
 @Entity
 @Table(name = "clients", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_clients_nic", columnNames = "nic"),
-        @UniqueConstraint(name = "uk_clients_source_request", columnNames = "source_request_id")
+        @UniqueConstraint(name = "uk_clients_nic", columnNames = "nic")
 })
 @Getter
 @Setter
@@ -43,6 +32,11 @@ public class Client {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** The user account this permanent client belongs to. One user = one client record. */
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    private User user;
 
     @Column(nullable = false, length = 150)
     private String name;
@@ -56,11 +50,9 @@ public class Client {
     @Column(name = "date_of_birth", nullable = false)
     private LocalDate dateOfBirth;
 
-    /** The workflow record this permanent client was created from. One-to-one:
-     * a given request can only ever produce one permanent client. */
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "source_request_id", nullable = false, unique = true)
-    private ClientRequest sourceRequest;
+    @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<ClientFundInvestment> fundInvestments = new ArrayList<>();
 
     @Builder.Default
     @Column(name = "approved_at", nullable = false, updatable = false)

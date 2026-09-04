@@ -1,7 +1,6 @@
 package com.senfin.backoffice_approval.dto;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 
 import com.senfin.backoffice_approval.entity.ApprovalStage;
@@ -10,14 +9,13 @@ import com.senfin.backoffice_approval.entity.RequestStatus;
 public record ClientRequestResponseDto(
         Long id,
         String clientUsername,
-        String name,
-        String nic,
-        String address,
-        LocalDate dateOfBirth,
+        String clientFullName,
+        String clientEmail,
         RequestStatus status,
         ApprovalStage currentStage,
         ApprovalStage rejectionStage,
         String rejectionComment,
+        List<FundInvestmentDto> fundInvestments,
         Instant createdAt,
         Instant updatedAt,
         List<ApprovalHistoryDto> history,

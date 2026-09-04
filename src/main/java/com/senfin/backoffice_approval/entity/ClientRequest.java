@@ -4,12 +4,15 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.Instant;
-import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Represents one "client onboarding approval" case. A single row is mutated
- * as it moves through the workflow (status/stage change in place); the full
- * history of what happened is kept in ApprovalHistory, not here.
+ * Represents one "client onboarding / fund investment approval" case.
+ * The client's personal details come from the User entity (auto-retrieved);
+ * this record tracks which fund(s) they want to invest in and the requested amount(s).
+ * A single row is mutated as it moves through the workflow (status/stage change in place);
+ * the full history of what happened is kept in ApprovalHistory, not here.
  */
 @Entity
 @Table(name = "client_requests")
@@ -28,18 +31,6 @@ public class ClientRequest {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "client_id", nullable = false)
     private User client;
-
-    @Column(nullable = false, length = 150)
-    private String name;
-
-    @Column(nullable = false, length = 20)
-    private String nic;
-
-    @Column(nullable = false, length = 300)
-    private String address;
-
-    @Column(name = "date_of_birth", nullable = false)
-    private LocalDate dateOfBirth;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -64,6 +55,10 @@ public class ClientRequest {
     /** Optimistic locking: protects against two managers actioning the same request at once. */
     @Version
     private Long version;
+
+    @OneToMany(mappedBy = "request", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<ClientRequestFund> fundInvestments = new ArrayList<>();
 
     @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)

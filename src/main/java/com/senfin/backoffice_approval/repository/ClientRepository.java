@@ -7,5 +7,6 @@ import java.util.Optional;
 
 public interface ClientRepository extends JpaRepository<Client, Long> {
     boolean existsByNic(String nic);
-    Optional<Client> findBySourceRequestId(Long requestId);
+    Optional<Client> findByUserId(Long userId);
+    Optional<Client> findByUserUsername(String username);
 }

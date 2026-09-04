@@ -1,16 +1,14 @@
 package com.senfin.backoffice_approval.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Past;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotEmpty;
 
-import java.time.LocalDate;
+import java.util.List;
 
-/** Payload the client submits to start (or edit + resubmit) an onboarding request. */
+/**
+ * Payload the client submits to start (or edit + resubmit) an investment request.
+ * Personal details are auto-retrieved from the User account; only fund investment
+ * details are needed from the client.
+ */
 public record CreateClientRequestDto(
-        @NotBlank @Size(max = 150) String name,
-        @NotBlank @Size(max = 20) String nic,
-        @NotBlank @Size(max = 300) String address,
-        @NotNull @Past LocalDate dateOfBirth
+        @NotEmpty List<FundInvestmentDto> fundInvestments
 ) {}
